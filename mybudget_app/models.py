@@ -5,6 +5,7 @@ from django.utils import timezone
 
 class Budget(BudgetModel):
     date = models.DateTimeField(default=timezone.now)
+    date_operation = models.DateTimeField(default=timezone.now)
     produit = models.CharField(max_length=255)
     ref = models.CharField(max_length=255)
     debit= models.FloatField()

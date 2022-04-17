@@ -24,34 +24,38 @@ def iso_to_datetime(iso_date):
 
 def df_selected(df, threshold, seT ):
     if seT == 'lower':
-        return df.where(df['Debit']< threshold).dropna()
+        return df.where(df['debit']< threshold).dropna()
     if seT == 'upper':
-        return df.where(df['Debit']>= threshold).dropna()
+        return df.where(df['debit']>= threshold).dropna()
     if seT == 'equal':
-        return df.where(df['Debit'] == threshold).dropna()
+        return df.where(df['debit'] == threshold).dropna()
 
 class PDC:
 
-    def __init__(self, salaire, dataframe, home_price, netflix_price, coiffure):
+    def __init__(self, salaire, dataframe, home_price, netflix_price, coiffure, family_cost):
         self.salaire = salaire
         self.df = dataframe
         self.home_price = float(home_price)
         self.netflix_price = float(netflix_price)
         self.coiffure = float(coiffure)
+        self.family_cost = float(family_cost)
 
     def get_df(self, type):
         if type == 'achat':
-            return self.df[self.df['Produit'].str.contains('ACHAT PAR CARTE DE PAIEMENT')]
+            return self.df[self.df['produit'].str.contains('ACHAT PAR CARTE DE PAIEMENT')]
         if type == 'retrait':
-            return self.df[self.df['Produit'].str.contains('RETRAIT GAB')]
+            return self.df[self.df['produit'].str.contains('RETRAIT GAB')]
         if type == 'internet':
-           return self.df[self.df['Produit'].str.contains('PAIEMENT FACT')] 
+           return self.df[self.df['produit'].str.contains('PAIEMENT FACT')] 
+        if type == 'virement':
+           return self.df[self.df['produit'].str.contains('ORDRE DE VIREMENT')] 
+        
 
     def Compute_cout_fixe(self):
         # Récupération des couts d'alimentation
         df_alim= df_selected(self.get_df('achat'), 400, 'lower' )
-        df_family = df_selected(self.get_df('retrait'), 1000, 'upper' )
-        value = float(df_alim['Debit'].sum()) + float(df_family['Debit'].sum()) + self.coiffure
+        #df_family = df_selected(self.get_df('virement'), 1000, 'upper' )
+        value = float(df_alim['debit'].sum()) + self.coiffure + self.home_price + self.family_cost
         if value > 0.4 * self.salaire:
             comment = 'Attention vous avez dépassé le seuil des cout fixes'
             #print(comment)
@@ -64,7 +68,7 @@ class PDC:
         df_sortie_from_achat = df_selected(self.get_df('achat'), 400, 'upper' )
         df_sortie_from_retrait = df_selected(self.get_df('retrait'), 1000, 'lower' )
         df_internet = self.get_df('internet')
-        value = float(df_sortie_from_achat['Debit'].sum()) + float(df_sortie_from_retrait['Debit'].sum()) + self.netflix_price + float(df_internet['Debit'].sum())
+        value = float(df_sortie_from_achat['debit'].sum()) + float(df_sortie_from_retrait['debit'].sum()) + self.netflix_price + float(df_internet['debit'].sum())
 
         if value > 0.3 * self.salaire:
             comment = 'Attention vous avez dépassé le seuil des depenses sans culpabilisées'
@@ -81,7 +85,7 @@ class PDC:
 
 
 def prevision_depense(df,cout_fixe, dsc, invest, salaire):
-    montant_depense = float(df['Debit'].sum())
+    montant_depense = float(df['debit'].sum())
     print('montant_depense', montant_depense)
     cout_fixe = (0.35 -cout_fixe/ montant_depense)*salaire
     dsc = (0.25 - dsc/montant_depense) * salaire
@@ -135,26 +139,27 @@ class Command(BaseCommand):
         force = options['force']
         date = iso_to_datetime(dateiso)
 
-        df = pd.read_excel(csv_in, sheet_name = 'historique compte')
+        df = pd.read_excel(csv_in, sheet_name = 'historique_compte')
         df['month'] = pd.DatetimeIndex(df['Date opération']).month
         df['year'] = pd.DatetimeIndex(df['Date opération']).year
         df['day'] = pd.DatetimeIndex(df['Date opération']).day
+        df['date'] = date
         print( df['day'])
-        df= df.rename(columns = {'Date opération':'date','Réf':'ref', 'Libellé':'produit','Débit (MAD)':'debit', 'Crédit (MAD)':'credit', 'Solde (MAD)':'solde'})
-    
-        dd = df[df.duplicated(['date'], keep=False)].groupby(['date']).last()
-        for d, _ in dd.iterrows():
-            #d = str(d)
-            d = d.date()
-            print('dddddddd', d)
-            if not dry and not insert:
-                make_date_ready(Budget, d)
+        df= df.rename(columns = {'Date opération':'date_operation','Réf':'ref', 'Libellé':'produit','Débit (MAD)':'debit', 'Crédit (MAD)':'credit', 'Solde (MAD)':'solde'})
+        #stockage data to db_table
+        # dd = df[df.duplicated(['date'], keep=False)].groupby(['date']).last()
+        # for d, _ in dd.iterrows():
+        #     d = str(d)
+        #     #d = d.date()
+        #     print('dddddddd', d)
+        #     if not dry and not insert:
+        #         make_date_ready(Budget, d)
 
-        if not dry:
-            now = datetime.datetime.now()
-            df['created'] = now
-            df['modified'] = now
-            dataframe_to_table(df, dry, 'mybudget_app_budget', disable_trigger = True)
+        # if not dry:
+        #     now = datetime.datetime.now()
+        #     df['created'] = now
+        #     df['modified'] = now
+        #     dataframe_to_table(df, dry, 'mybudget_app_budget', disable_trigger = True)
         # #stockage data to db_table
         # engine = create_engine('sqlite:///DB_name')
         # df.to_sql(Budget._meta.db_table, if_exists='replace', con=engine, index=False)
@@ -170,14 +175,14 @@ class Command(BaseCommand):
             prev_month_check = month_check-1
             prev_year_check = year_check    
 
-        df = df.where((df['Date'] >= datetime.datetime(prev_year_check,prev_month_check,28)) & (df['Date'] <= datetime.datetime(year_check,month_check,day_check)) ).dropna()
+        df = df.where((df['date_operation'] >= datetime.datetime(prev_year_check,prev_month_check,28)) & (df['date_operation'] <= datetime.datetime(year_check,month_check,day_check)) ).dropna()
         print(df)
-        # #exit()
+        #exit()
 
 
         #print(df1, int(dateiso[4:6]))
         print(df.columns)
-        my_pdc = PDC(13500, df, 1000, 95, 30)
+        my_pdc = PDC(13500, df, 3000, 95, 30, 2180)
         dsc, comment_dsc = my_pdc.Compute_DSC()
         print(dsc)
         cout_fixe, comment_cost = my_pdc.Compute_cout_fixe()
@@ -189,18 +194,18 @@ class Command(BaseCommand):
         dico = {'date': date, 'month': month,  'fixed_cost': cout_fixe, 'dsc':dsc, 'invest': invest, 'commentaire': comment_cost + ' / ' + comment_dsc }
         df_monthly = pd.DataFrame(dico, index=[0])
         print(df_monthly)
-        dd = df[df.duplicated(['date'], keep=False)].groupby(['date']).last()
+        dd = df_monthly[df_monthly.duplicated(['date'], keep=False)].groupby(['date']).last()
         for d, _ in dd.iterrows():
             d = str(d)
-            d=d.date()
+            #d=d.date()
             if not dry and not insert:
                 make_date_ready(monthly_table, d)
 
         if not dry:
             now = datetime.datetime.now()
-            df['created'] = now
-            df['modified'] = now
-            dataframe_to_table(df, dry, 'mybudget_app_monthly_table', disable_trigger = True)
+            df_monthly['created'] = now
+            df_monthly['modified'] = now
+            dataframe_to_table(df_monthly, dry, 'mybudget_app_monthly_table', disable_trigger = True)
         # #stockage df_monthly to db_table
         # engine = create_engine('sqlite:///DB_name')
         # df_monthly.to_sql(monthly_table._meta.db_table, if_exists='append', con=engine, index=False)
